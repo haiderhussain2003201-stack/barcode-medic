@@ -5,6 +5,9 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   CalendarClock,
   Camera,
+  Download,
+  Edit3,
+  Filter,
   LogOut,
   Loader2,
   Package,
@@ -34,6 +37,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -54,6 +64,20 @@ export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
+const CATEGORIES = [
+  "مسكنات",
+  "مضادات حيوية",
+  "فيتامينات",
+  "أمراض مزمنة",
+  "مضادات حساسية",
+  "الجهاز الهضمي",
+  "الجهاز التنفسي",
+  "عناية بالبشرة",
+  "أخرى",
+];
+
+const LOW_STOCK_THRESHOLD = 5;
+
 type Medicine = {
   id: string;
   barcode: string | null;
@@ -62,6 +86,7 @@ type Medicine = {
   manufacturer: string | null;
   expiry_date: string | null;
   quantity: number;
+  category: string | null;
 };
 
 const today = () => {
@@ -89,12 +114,50 @@ const toneClass = {
   muted: "bg-muted text-muted-foreground border-border",
 };
 
+function downloadCsv(medicines: Medicine[]) {
+  const headers = [
+    "الاسم التجاري",
+    "الاسم العلمي",
+    "الشركة المصنّعة",
+    "الفئة",
+    "الباركود",
+    "تاريخ الانتهاء",
+    "الكمية",
+    "الأيام المتبقية",
+  ];
+  const rows = medicines.map((m) => {
+    const d = daysLeft(m.expiry_date);
+    return [
+      m.trade_name,
+      m.generic_name ?? "",
+      m.manufacturer ?? "",
+      m.category ?? "",
+      m.barcode ?? "",
+      m.expiry_date ?? "",
+      m.quantity,
+      d === null ? "" : d,
+    ];
+  });
+  const csv = [headers, ...rows]
+    .map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `مخزون_الأدوية_${new Date().toISOString().split("T")[0]}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function HomePage() {
   const navigate = useNavigate();
   const { user, loading } = useAuth();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [addOpen, setAddOpen] = useState(false);
+  const [editing, setEditing] = useState<Medicine | null>(null);
 
   useEffect(() => {
     if (!loading && !user) void navigate({ to: "/auth" });
@@ -106,7 +169,7 @@ function HomePage() {
     queryFn: async (): Promise<Medicine[]> => {
       const { data, error } = await supabase
         .from("medicines")
-        .select("id, barcode, trade_name, generic_name, manufacturer, expiry_date, quantity")
+        .select("id, barcode, trade_name, generic_name, manufacturer, expiry_date, quantity, category")
         .order("expiry_date", { ascending: true, nullsFirst: false });
       if (error) throw error;
       return data ?? [];
@@ -127,19 +190,23 @@ function HomePage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return medicines;
-    return medicines.filter((m) =>
-      [m.trade_name, m.generic_name, m.manufacturer, m.barcode]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q)),
-    );
-  }, [medicines, search]);
+    return medicines.filter((m) => {
+      const matchesSearch = !q
+        ? true
+        : [m.trade_name, m.generic_name, m.manufacturer, m.barcode, m.category]
+            .filter(Boolean)
+            .some((v) => String(v).toLowerCase().includes(q));
+      const matchesCategory = categoryFilter === "all" ? true : m.category === categoryFilter;
+      return matchesSearch && matchesCategory;
+    });
+  }, [medicines, search, categoryFilter]);
 
   const expired = medicines.filter((m) => (daysLeft(m.expiry_date) ?? 1) < 0).length;
   const soon = medicines.filter((m) => {
     const d = daysLeft(m.expiry_date);
     return d !== null && d >= 0 && d <= 90;
   }).length;
+  const lowStock = medicines.filter((m) => m.quantity <= LOW_STOCK_THRESHOLD).length;
 
   if (loading || !user) {
     return (
@@ -161,21 +228,34 @@ function HomePage() {
             <p className="text-xs text-muted-foreground">{user.email}</p>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="تسجيل الخروج"
-          onClick={async () => {
-            await supabase.auth.signOut();
-            void navigate({ to: "/auth" });
-          }}
-        >
-          <LogOut className="size-5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="تصدير المخزون"
+            onClick={() => {
+              downloadCsv(medicines);
+              toast.success("تم تصدير المخزون");
+            }}
+          >
+            <Download className="size-5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="تسجيل الخروج"
+            onClick={async () => {
+              await supabase.auth.signOut();
+              void navigate({ to: "/auth" });
+            }}
+          >
+            <LogOut className="size-5" />
+          </Button>
+        </div>
       </header>
 
-      <section className="mt-6 grid grid-cols-3 gap-3">
-        <StatCard icon={<Package className="size-4" />} label="الأدوية" value={medicines.length} />
+      <section className="mt-6 grid grid-cols-4 gap-2">
+        <StatCard icon={<Package className="size-4" />} label="الأدوية" value={medicines.length} tone="ok" />
         <StatCard
           icon={<CalendarClock className="size-4" />}
           label="قريبة الانتهاء"
@@ -188,17 +268,46 @@ function HomePage() {
           value={expired}
           tone="danger"
         />
+        <StatCard
+          icon={<Package className="size-4" />}
+          label="كمية قليلة"
+          value={lowStock}
+          tone={lowStock > 0 ? "warn" : "ok"}
+        />
       </section>
 
-      <div className="relative mt-6">
-        <Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="ابحث بالاسم أو الباركود..."
-          className="pr-9"
-          maxLength={100}
-        />
+      <div className="mt-6 space-y-3">
+        <div className="relative">
+          <Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="ابحث بالاسم أو الباركود أو الفئة..."
+            className="pr-9"
+            maxLength={100}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Filter className="size-4 text-muted-foreground" />
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger className="h-9 flex-1 text-sm">
+              <SelectValue placeholder="كل الفئات" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">كل الفئات</SelectItem>
+              {CATEGORIES.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {categoryFilter !== "all" && (
+            <Button variant="ghost" size="sm" onClick={() => setCategoryFilter("all")}>
+              إلغاء
+            </Button>
+          )}
+        </div>
       </div>
 
       <section className="mt-4 space-y-3">
@@ -206,18 +315,26 @@ function HomePage() {
         {!isLoading && filtered.length === 0 && (
           <Card className="border-dashed">
             <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              لا توجد أدوية بعد. اضغط «إضافة دواء» وامسح الباركود للبدء.
+              لا توجد أدوية مطابقة. اضغط «إضافة دواء» وامسح الباركود للبدء.
             </CardContent>
           </Card>
         )}
         {filtered.map((m) => {
           const days = daysLeft(m.expiry_date);
           const status = statusOf(days);
+          const isLow = m.quantity <= LOW_STOCK_THRESHOLD;
           return (
             <Card key={m.id} className="shadow-[var(--shadow-card)]">
               <CardContent className="flex items-start justify-between gap-3 py-4">
-                <div className="min-w-0">
-                  <h2 className="truncate font-bold">{m.trade_name}</h2>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <h2 className="truncate font-bold">{m.trade_name}</h2>
+                    {m.category && (
+                      <Badge variant="outline" className="shrink-0 text-[10px] bg-secondary/50">
+                        {m.category}
+                      </Badge>
+                    )}
+                  </div>
                   {m.generic_name && (
                     <p className="truncate text-xs text-muted-foreground">{m.generic_name}</p>
                   )}
@@ -228,20 +345,33 @@ function HomePage() {
                     {m.expiry_date && (
                       <span className="latin text-muted-foreground">{m.expiry_date}</span>
                     )}
-                    <span className="text-muted-foreground">الكمية: {m.quantity}</span>
+                    <span className={`text-muted-foreground ${isLow ? "font-bold text-warning-foreground" : ""}`}>
+                      الكمية: {m.quantity}
+                      {isLow && " (قليلة)"}
+                    </span>
                   </div>
                   {m.barcode && (
                     <p className="latin mt-1 text-[11px] text-muted-foreground">{m.barcode}</p>
                   )}
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="حذف"
-                  onClick={() => remove.mutate(m.id)}
-                >
-                  <Trash2 className="size-4 text-destructive" />
-                </Button>
+                <div className="flex shrink-0 items-center gap-0.5">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="تعديل"
+                    onClick={() => setEditing(m)}
+                  >
+                    <Edit3 className="size-4 text-muted-foreground" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="حذف"
+                    onClick={() => remove.mutate(m.id)}
+                  >
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           );
@@ -260,6 +390,14 @@ function HomePage() {
         userId={user.id}
         onSaved={() => void queryClient.invalidateQueries({ queryKey: ["medicines"] })}
       />
+      {editing && (
+        <EditMedicineDialog
+          medicine={editing}
+          open={!!editing}
+          onOpenChange={(open) => !open && setEditing(null)}
+          onSaved={() => void queryClient.invalidateQueries({ queryKey: ["medicines"] })}
+        />
+      )}
     </main>
   );
 }
@@ -277,7 +415,7 @@ function StatCard({
 }) {
   return (
     <Card className="shadow-[var(--shadow-card)]">
-      <CardContent className="px-3 py-4 text-center">
+      <CardContent className="px-2 py-4 text-center">
         <div
           className={`mx-auto flex size-8 items-center justify-center rounded-lg border ${toneClass[tone]}`}
         >
@@ -297,6 +435,7 @@ type Draft = {
   manufacturer: string;
   expiry_date: string;
   quantity: string;
+  category: string;
 };
 
 const emptyDraft: Draft = {
@@ -306,7 +445,32 @@ const emptyDraft: Draft = {
   manufacturer: "",
   expiry_date: "",
   quantity: "1",
+  category: "",
 };
+
+function CategorySelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Select value={value || "none"} onValueChange={(v) => onChange(v === "none" ? "" : v)}>
+      <SelectTrigger className="h-10 w-full text-sm">
+        <SelectValue placeholder="اختر الفئة (اختياري)" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="none">بدون فئة</SelectItem>
+        {CATEGORIES.map((c) => (
+          <SelectItem key={c} value={c}>
+            {c}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 function AddMedicineDialog({
   open,
@@ -398,6 +562,7 @@ function AddMedicineDialog({
       manufacturer: draft.manufacturer.trim() || null,
       expiry_date: draft.expiry_date || null,
       quantity: Math.max(1, Number(draft.quantity) || 1),
+      category: draft.category.trim() || null,
     });
     setSaving(false);
     if (error) {
@@ -470,6 +635,9 @@ function AddMedicineDialog({
                 onChange={(e) => set("manufacturer", e.target.value)}
               />
             </Field>
+            <Field label="الفئة">
+              <CategorySelect value={draft.category} onChange={(v) => set("category", v)} />
+            </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="تاريخ الانتهاء">
                 <Input
@@ -511,6 +679,129 @@ function AddMedicineDialog({
         onCapture={handlePhoto}
       />
     </>
+  );
+}
+
+function EditMedicineDialog({
+  medicine,
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  medicine: Medicine;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onSaved: () => void;
+}) {
+  const [draft, setDraft] = useState<Draft>({
+    barcode: medicine.barcode ?? "",
+    trade_name: medicine.trade_name,
+    generic_name: medicine.generic_name ?? "",
+    manufacturer: medicine.manufacturer ?? "",
+    expiry_date: medicine.expiry_date ?? "",
+    quantity: String(medicine.quantity),
+    category: medicine.category ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  const set = (k: keyof Draft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
+
+  const save = async () => {
+    const name = draft.trade_name.trim();
+    if (!name) {
+      toast.error("اسم الدواء مطلوب");
+      return;
+    }
+    setSaving(true);
+    const { error } = await supabase
+      .from("medicines")
+      .update({
+        barcode: draft.barcode.trim() || null,
+        trade_name: name,
+        generic_name: draft.generic_name.trim() || null,
+        manufacturer: draft.manufacturer.trim() || null,
+        expiry_date: draft.expiry_date || null,
+        quantity: Math.max(1, Number(draft.quantity) || 1),
+        category: draft.category.trim() || null,
+      })
+      .eq("id", medicine.id);
+    setSaving(false);
+    if (error) {
+      toast.error("تعذّر التعديل");
+      return;
+    }
+    toast.success("تم تعديل الدواء");
+    onSaved();
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
+        <DialogHeader className="text-right">
+          <DialogTitle>تعديل دواء</DialogTitle>
+          <DialogDescription>عدّل بيانات الدواء ثم اضغط حفظ.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <Field label="الباركود">
+            <Input
+              dir="ltr"
+              value={draft.barcode}
+              maxLength={64}
+              onChange={(e) => set("barcode", e.target.value)}
+            />
+          </Field>
+          <Field label="الاسم التجاري">
+            <Input
+              value={draft.trade_name}
+              maxLength={200}
+              onChange={(e) => set("trade_name", e.target.value)}
+            />
+          </Field>
+          <Field label="الاسم العلمي">
+            <Input
+              value={draft.generic_name}
+              maxLength={200}
+              onChange={(e) => set("generic_name", e.target.value)}
+            />
+          </Field>
+          <Field label="الشركة المصنّعة">
+            <Input
+              value={draft.manufacturer}
+              maxLength={200}
+              onChange={(e) => set("manufacturer", e.target.value)}
+            />
+          </Field>
+          <Field label="الفئة">
+            <CategorySelect value={draft.category} onChange={(v) => set("category", v)} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="تاريخ الانتهاء">
+              <Input
+                type="date"
+                dir="ltr"
+                value={draft.expiry_date}
+                onChange={(e) => set("expiry_date", e.target.value)}
+              />
+            </Field>
+            <Field label="الكمية">
+              <Input
+                type="number"
+                min={1}
+                dir="ltr"
+                value={draft.quantity}
+                onChange={(e) => set("quantity", e.target.value)}
+              />
+            </Field>
+          </div>
+        </div>
+
+        <Button onClick={save} disabled={saving} size="lg" className="mt-2 w-full">
+          {saving && <Loader2 className="size-4 animate-spin" />} حفظ التعديلات
+        </Button>
+      </DialogContent>
+    </Dialog>
   );
 }
 
