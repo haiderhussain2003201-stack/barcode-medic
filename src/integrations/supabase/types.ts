@@ -44,6 +44,7 @@ export type Database = {
       medicines: {
         Row: {
           barcode: string | null
+          category: string | null
           created_at: string
           expiry_date: string | null
           generic_name: string | null
@@ -57,6 +58,7 @@ export type Database = {
         }
         Insert: {
           barcode?: string | null
+          category?: string | null
           created_at?: string
           expiry_date?: string | null
           generic_name?: string | null
@@ -70,6 +72,7 @@ export type Database = {
         }
         Update: {
           barcode?: string | null
+          category?: string | null
           created_at?: string
           expiry_date?: string | null
           generic_name?: string | null
