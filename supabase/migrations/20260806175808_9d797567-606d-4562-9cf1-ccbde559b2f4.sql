@@ -1,0 +1,1 @@
+ALTER TABLE public.medicines ADD COLUMN IF NOT EXISTS category text;
