@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -13,7 +13,6 @@ import {
   Package,
   Pill,
   Plus,
-  ScanBarcode,
   Search,
   Trash2,
   TriangleAlert,
@@ -22,8 +21,7 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { lookupBarcode, readExpiryPhoto, saveBarcodeName } from "@/lib/pharmacy.functions";
-import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { identifyMedicinePhoto, readExpiryPhoto } from "@/lib/pharmacy.functions";
 import { PhotoCapture } from "@/components/PhotoCapture";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,13 +50,15 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "أضف الأدوية بمسح الباركود فقط، والتقط تاريخ الانتهاء بالكاميرا، وتابع الأيام المتبقية لكل دواء يوميًا.",
+          "صوّر اسم الدواء ليُدرج تلقائيًا مع اسمه العلمي، والتقط تاريخ الانتهاء بالكاميرا، وتابع الأيام المتبقية يوميًا.",
       },
       { property: "og:title", content: "صيدليتي — مخزون الأدوية وتواريخ الانتهاء" },
       {
         property: "og:description",
-        content: "مسح الباركود، قراءة تاريخ الانتهاء بالكاميرا، وتنبيه بالأدوية القريبة من الانتهاء.",
+        content: "تصوير اسم الدواء وتاريخ الانتهاء بالكاميرا مع تنبيه الأدوية القريبة من الانتهاء.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: HomePage,
@@ -80,10 +80,8 @@ const LOW_STOCK_THRESHOLD = 5;
 
 type Medicine = {
   id: string;
-  barcode: string | null;
   trade_name: string;
   generic_name: string | null;
-  manufacturer: string | null;
   expiry_date: string | null;
   quantity: number;
   category: string | null;
@@ -118,9 +116,7 @@ function downloadCsv(medicines: Medicine[]) {
   const headers = [
     "الاسم التجاري",
     "الاسم العلمي",
-    "الشركة المصنّعة",
     "الفئة",
-    "الباركود",
     "تاريخ الانتهاء",
     "الكمية",
     "الأيام المتبقية",
@@ -130,9 +126,7 @@ function downloadCsv(medicines: Medicine[]) {
     return [
       m.trade_name,
       m.generic_name ?? "",
-      m.manufacturer ?? "",
       m.category ?? "",
-      m.barcode ?? "",
       m.expiry_date ?? "",
       m.quantity,
       d === null ? "" : d,
@@ -158,6 +152,7 @@ function HomePage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Medicine | null>(null);
+  const lastDeleted = useRef<Medicine | null>(null);
 
   useEffect(() => {
     if (!loading && !user) void navigate({ to: "/auth" });
@@ -169,21 +164,49 @@ function HomePage() {
     queryFn: async (): Promise<Medicine[]> => {
       const { data, error } = await supabase
         .from("medicines")
-        .select("id, barcode, trade_name, generic_name, manufacturer, expiry_date, quantity, category")
+        .select("id, trade_name, generic_name, expiry_date, quantity, category")
         .order("expiry_date", { ascending: true, nullsFirst: false });
       if (error) throw error;
       return data ?? [];
     },
   });
 
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["medicines"] });
+
+  const undoDelete = async () => {
+    const m = lastDeleted.current;
+    if (!m || !user) return;
+    const { error } = await supabase.from("medicines").insert({
+      id: m.id,
+      user_id: user.id,
+      trade_name: m.trade_name,
+      generic_name: m.generic_name,
+      expiry_date: m.expiry_date,
+      quantity: m.quantity,
+      category: m.category,
+    });
+    if (error) {
+      toast.error("تعذّر التراجع");
+      return;
+    }
+    lastDeleted.current = null;
+    toast.success("تم استرجاع الدواء");
+    refresh();
+  };
+
   const remove = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("medicines").delete().eq("id", id);
+    mutationFn: async (medicine: Medicine) => {
+      const { error } = await supabase.from("medicines").delete().eq("id", medicine.id);
       if (error) throw error;
+      return medicine;
     },
-    onSuccess: () => {
-      toast.success("تم حذف الدواء");
-      void queryClient.invalidateQueries({ queryKey: ["medicines"] });
+    onSuccess: (medicine) => {
+      lastDeleted.current = medicine;
+      toast.success(`تم حذف ${medicine.trade_name}`, {
+        duration: 8000,
+        action: { label: "تراجع", onClick: () => void undoDelete() },
+      });
+      refresh();
     },
     onError: () => toast.error("تعذّر الحذف"),
   });
@@ -193,7 +216,7 @@ function HomePage() {
     return medicines.filter((m) => {
       const matchesSearch = !q
         ? true
-        : [m.trade_name, m.generic_name, m.manufacturer, m.barcode, m.category]
+        : [m.trade_name, m.generic_name, m.category]
             .filter(Boolean)
             .some((v) => String(v).toLowerCase().includes(q));
       const matchesCategory = categoryFilter === "all" ? true : m.category === categoryFilter;
@@ -282,7 +305,7 @@ function HomePage() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="ابحث بالاسم أو الباركود أو الفئة..."
+            placeholder="ابحث بالاسم التجاري أو العلمي أو الفئة..."
             className="pr-9"
             maxLength={100}
           />
@@ -315,7 +338,7 @@ function HomePage() {
         {!isLoading && filtered.length === 0 && (
           <Card className="border-dashed">
             <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              لا توجد أدوية مطابقة. اضغط «إضافة دواء» وامسح الباركود للبدء.
+              لا توجد أدوية مطابقة. اضغط «إضافة دواء» وصوّر اسم الدواء للبدء.
             </CardContent>
           </Card>
         )}
@@ -350,9 +373,6 @@ function HomePage() {
                       {isLow && " (قليلة)"}
                     </span>
                   </div>
-                  {m.barcode && (
-                    <p className="latin mt-1 text-[11px] text-muted-foreground">{m.barcode}</p>
-                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-0.5">
                   <Button
@@ -367,7 +387,7 @@ function HomePage() {
                     variant="ghost"
                     size="icon"
                     aria-label="حذف"
-                    onClick={() => remove.mutate(m.id)}
+                    onClick={() => remove.mutate(m)}
                   >
                     <Trash2 className="size-4 text-destructive" />
                   </Button>
@@ -388,14 +408,14 @@ function HomePage() {
         open={addOpen}
         onOpenChange={setAddOpen}
         userId={user.id}
-        onSaved={() => void queryClient.invalidateQueries({ queryKey: ["medicines"] })}
+        onSaved={refresh}
       />
       {editing && (
         <EditMedicineDialog
           medicine={editing}
           open={!!editing}
           onOpenChange={(open) => !open && setEditing(null)}
-          onSaved={() => void queryClient.invalidateQueries({ queryKey: ["medicines"] })}
+          onSaved={refresh}
         />
       )}
     </main>
@@ -429,20 +449,16 @@ function StatCard({
 }
 
 type Draft = {
-  barcode: string;
   trade_name: string;
   generic_name: string;
-  manufacturer: string;
   expiry_date: string;
   quantity: string;
   category: string;
 };
 
 const emptyDraft: Draft = {
-  barcode: "",
   trade_name: "",
   generic_name: "",
-  manufacturer: "",
   expiry_date: "",
   quantity: "1",
   category: "",
@@ -484,15 +500,14 @@ function AddMedicineDialog({
   onSaved: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>(emptyDraft);
-  const [scanning, setScanning] = useState(false);
+  const [namingOpen, setNamingOpen] = useState(false);
   const [capturing, setCapturing] = useState(false);
-  const [looking, setLooking] = useState(false);
+  const [identifying, setIdentifying] = useState(false);
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const lookup = useServerFn(lookupBarcode);
+  const identify = useServerFn(identifyMedicinePhoto);
   const readPhoto = useServerFn(readExpiryPhoto);
-  const cacheName = useServerFn(saveBarcodeName);
 
   useEffect(() => {
     if (open) setDraft(emptyDraft);
@@ -500,27 +515,26 @@ function AddMedicineDialog({
 
   const set = (k: keyof Draft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
 
-  const handleBarcode = async (code: string) => {
-    setScanning(false);
-    set("barcode", code);
-    setLooking(true);
+  const handleNamePhoto = async (image: string) => {
+    setIdentifying(true);
     try {
-      const res = await lookup({ data: { barcode: code } });
-      if (res.found) {
+      const res = await identify({ data: { image } });
+      if (res.trade_name || res.generic_name) {
         setDraft((d) => ({
           ...d,
           trade_name: res.trade_name ?? d.trade_name,
           generic_name: res.generic_name ?? d.generic_name,
-          manufacturer: res.manufacturer ?? d.manufacturer,
+          expiry_date: res.expiry_date ?? d.expiry_date,
         }));
-        toast.success("تم التعرف على الدواء من الباركود");
+        toast.success(`تم التعرف على: ${res.trade_name ?? res.generic_name}`);
+        setNamingOpen(false);
       } else {
-        toast.info("لم نجد هذا الباركود — اكتب الاسم مرة واحدة وسيُحفظ للمرات القادمة");
+        toast.error("لم نتمكن من قراءة اسم الدواء، جرّب تقريب الكاميرا أكثر");
       }
     } catch {
-      toast.error("تعذّر البحث عن الباركود");
+      toast.error("تعذّرت قراءة الصورة");
     } finally {
-      setLooking(false);
+      setIdentifying(false);
     }
   };
 
@@ -533,7 +547,6 @@ function AddMedicineDialog({
           ...d,
           expiry_date: res.expiry_date!,
           trade_name: d.trade_name || (res.trade_name ?? ""),
-          barcode: d.barcode || (res.barcode ?? ""),
         }));
         toast.success(`تاريخ الانتهاء: ${res.expiry_date}`);
         setCapturing(false);
@@ -556,10 +569,8 @@ function AddMedicineDialog({
     setSaving(true);
     const { error } = await supabase.from("medicines").insert({
       user_id: userId,
-      barcode: draft.barcode.trim() || null,
       trade_name: name,
       generic_name: draft.generic_name.trim() || null,
-      manufacturer: draft.manufacturer.trim() || null,
       expiry_date: draft.expiry_date || null,
       quantity: Math.max(1, Number(draft.quantity) || 1),
       category: draft.category.trim() || null,
@@ -568,16 +579,6 @@ function AddMedicineDialog({
     if (error) {
       toast.error("تعذّر الحفظ");
       return;
-    }
-    if (draft.barcode.trim()) {
-      void cacheName({
-        data: {
-          barcode: draft.barcode.trim(),
-          trade_name: name,
-          generic_name: draft.generic_name.trim() || null,
-          manufacturer: draft.manufacturer.trim() || null,
-        },
-      }).catch(() => undefined);
     }
     toast.success("تمت إضافة الدواء");
     onSaved();
@@ -591,14 +592,14 @@ function AddMedicineDialog({
           <DialogHeader className="text-right">
             <DialogTitle>إضافة دواء</DialogTitle>
             <DialogDescription>
-              امسح الباركود ليُدرج الاسم تلقائيًا، ثم صوّر تاريخ الانتهاء.
+              صوّر اسم الدواء ليُدرج مع اسمه العلمي تلقائيًا، ثم صوّر تاريخ الانتهاء.
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid grid-cols-2 gap-3">
-            <Button variant="secondary" onClick={() => setScanning(true)} disabled={looking}>
-              {looking ? <Loader2 className="size-4 animate-spin" /> : <ScanBarcode className="size-4" />}
-              مسح الباركود
+            <Button variant="secondary" onClick={() => setNamingOpen(true)} disabled={identifying}>
+              {identifying ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />}
+              تصوير اسم الدواء
             </Button>
             <Button variant="secondary" onClick={() => setCapturing(true)}>
               <Camera className="size-4" /> تصوير التاريخ
@@ -606,14 +607,6 @@ function AddMedicineDialog({
           </div>
 
           <div className="space-y-3">
-            <Field label="الباركود">
-              <Input
-                dir="ltr"
-                value={draft.barcode}
-                maxLength={64}
-                onChange={(e) => set("barcode", e.target.value)}
-              />
-            </Field>
             <Field label="الاسم التجاري">
               <Input
                 value={draft.trade_name}
@@ -626,13 +619,6 @@ function AddMedicineDialog({
                 value={draft.generic_name}
                 maxLength={200}
                 onChange={(e) => set("generic_name", e.target.value)}
-              />
-            </Field>
-            <Field label="الشركة المصنّعة">
-              <Input
-                value={draft.manufacturer}
-                maxLength={200}
-                onChange={(e) => set("manufacturer", e.target.value)}
               />
             </Field>
             <Field label="الفئة">
@@ -665,10 +651,13 @@ function AddMedicineDialog({
         </DialogContent>
       </Dialog>
 
-      <BarcodeScanner
-        open={scanning}
-        onClose={() => setScanning(false)}
-        onDetected={handleBarcode}
+      <PhotoCapture
+        open={namingOpen}
+        busy={identifying}
+        title="تصوير اسم الدواء"
+        hint="وجّه الكاميرا نحو الاسم التجاري على العلبة"
+        onClose={() => setNamingOpen(false)}
+        onCapture={handleNamePhoto}
       />
       <PhotoCapture
         open={capturing}
@@ -694,10 +683,8 @@ function EditMedicineDialog({
   onSaved: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>({
-    barcode: medicine.barcode ?? "",
     trade_name: medicine.trade_name,
     generic_name: medicine.generic_name ?? "",
-    manufacturer: medicine.manufacturer ?? "",
     expiry_date: medicine.expiry_date ?? "",
     quantity: String(medicine.quantity),
     category: medicine.category ?? "",
@@ -716,10 +703,8 @@ function EditMedicineDialog({
     const { error } = await supabase
       .from("medicines")
       .update({
-        barcode: draft.barcode.trim() || null,
         trade_name: name,
         generic_name: draft.generic_name.trim() || null,
-        manufacturer: draft.manufacturer.trim() || null,
         expiry_date: draft.expiry_date || null,
         quantity: Math.max(1, Number(draft.quantity) || 1),
         category: draft.category.trim() || null,
@@ -744,14 +729,6 @@ function EditMedicineDialog({
         </DialogHeader>
 
         <div className="space-y-3">
-          <Field label="الباركود">
-            <Input
-              dir="ltr"
-              value={draft.barcode}
-              maxLength={64}
-              onChange={(e) => set("barcode", e.target.value)}
-            />
-          </Field>
           <Field label="الاسم التجاري">
             <Input
               value={draft.trade_name}
@@ -764,13 +741,6 @@ function EditMedicineDialog({
               value={draft.generic_name}
               maxLength={200}
               onChange={(e) => set("generic_name", e.target.value)}
-            />
-          </Field>
-          <Field label="الشركة المصنّعة">
-            <Input
-              value={draft.manufacturer}
-              maxLength={200}
-              onChange={(e) => set("manufacturer", e.target.value)}
             />
           </Field>
           <Field label="الفئة">
