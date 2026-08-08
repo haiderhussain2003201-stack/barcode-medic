@@ -515,50 +515,58 @@ function AddMedicineDialog({
 
   const set = (k: keyof Draft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
 
-  const handleNamePhoto = async (image: string) => {
-    setIdentifying(true);
-    try {
-      const res = await identify({ data: { image } });
-      if (res.trade_name || res.generic_name) {
-        setDraft((d) => ({
-          ...d,
-          trade_name: res.trade_name ?? d.trade_name,
-          generic_name: res.generic_name ?? d.generic_name,
-          expiry_date: res.expiry_date ?? d.expiry_date,
-        }));
-        toast.success(`تم التعرف على: ${res.trade_name ?? res.generic_name}`);
-        setNamingOpen(false);
-      } else {
-        toast.error("لم نتمكن من قراءة اسم الدواء، جرّب تقريب الكاميرا أكثر");
+  const handleNamePhoto = useCallback(
+    async (image: string) => {
+      setIdentifying(true);
+      try {
+        const res = await identify({ data: { image } });
+        if (res.trade_name || res.generic_name) {
+          setDraft((d) => ({
+            ...d,
+            trade_name: res.trade_name ?? d.trade_name,
+            generic_name: res.generic_name ?? d.generic_name,
+            expiry_date: res.expiry_date ?? d.expiry_date,
+          }));
+          toast.success(`تم التعرف على: ${res.trade_name ?? res.generic_name}`);
+          setNamingOpen(false);
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      } finally {
+        setIdentifying(false);
       }
-    } catch {
-      toast.error("تعذّرت قراءة الصورة");
-    } finally {
-      setIdentifying(false);
-    }
-  };
+    },
+    [identify],
+  );
 
-  const handlePhoto = async (image: string) => {
-    setReading(true);
-    try {
-      const res = await readPhoto({ data: { image } });
-      if (res.expiry_date) {
-        setDraft((d) => ({
-          ...d,
-          expiry_date: res.expiry_date!,
-          trade_name: d.trade_name || (res.trade_name ?? ""),
-        }));
-        toast.success(`تاريخ الانتهاء: ${res.expiry_date}`);
-        setCapturing(false);
-      } else {
-        toast.error("لم نتمكن من قراءة التاريخ، جرّب تقريب الكاميرا أكثر");
+  const handlePhoto = useCallback(
+    async (image: string) => {
+      setReading(true);
+      try {
+        const res = await readPhoto({ data: { image } });
+        if (res.expiry_date) {
+          const iso = res.expiry_date;
+          setDraft((d) => ({
+            ...d,
+            expiry_date: iso,
+            trade_name: d.trade_name || (res.trade_name ?? ""),
+          }));
+          toast.success(`تاريخ الانتهاء: ${iso}`);
+          setCapturing(false);
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      } finally {
+        setReading(false);
       }
-    } catch {
-      toast.error("تعذّرت قراءة الصورة");
-    } finally {
-      setReading(false);
-    }
-  };
+    },
+    [readPhoto],
+  );
+
 
   const save = async () => {
     const name = draft.trade_name.trim();
