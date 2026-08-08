@@ -62,7 +62,7 @@ export function PhotoCapture({ open, title, hint, busy, onClose, onCapture }: Pr
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-foreground/95 backdrop-blur">
+    <div className="fixed inset-0 z-[100] flex flex-col bg-foreground/95 backdrop-blur">
       <div className="flex items-center justify-between p-4 text-background">
         <span className="flex items-center gap-2 font-semibold">
           <Camera className="size-5" /> {title}

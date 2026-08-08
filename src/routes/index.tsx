@@ -588,7 +588,15 @@ function AddMedicineDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
+        <DialogContent
+          className="max-h-[90dvh] overflow-y-auto sm:max-w-md"
+          onInteractOutside={(e) => {
+            if (namingOpen || capturing) e.preventDefault();
+          }}
+          onEscapeKeyDown={(e) => {
+            if (namingOpen || capturing) e.preventDefault();
+          }}
+        >
           <DialogHeader className="text-right">
             <DialogTitle>إضافة دواء</DialogTitle>
             <DialogDescription>
