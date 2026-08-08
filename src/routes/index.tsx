@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -515,50 +515,58 @@ function AddMedicineDialog({
 
   const set = (k: keyof Draft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
 
-  const handleNamePhoto = async (image: string) => {
-    setIdentifying(true);
-    try {
-      const res = await identify({ data: { image } });
-      if (res.trade_name || res.generic_name) {
-        setDraft((d) => ({
-          ...d,
-          trade_name: res.trade_name ?? d.trade_name,
-          generic_name: res.generic_name ?? d.generic_name,
-          expiry_date: res.expiry_date ?? d.expiry_date,
-        }));
-        toast.success(`تم التعرف على: ${res.trade_name ?? res.generic_name}`);
-        setNamingOpen(false);
-      } else {
-        toast.error("لم نتمكن من قراءة اسم الدواء، جرّب تقريب الكاميرا أكثر");
+  const handleNamePhoto = useCallback(
+    async (image: string) => {
+      setIdentifying(true);
+      try {
+        const res = await identify({ data: { image } });
+        if (res.trade_name || res.generic_name) {
+          setDraft((d) => ({
+            ...d,
+            trade_name: res.trade_name ?? d.trade_name,
+            generic_name: res.generic_name ?? d.generic_name,
+            expiry_date: res.expiry_date ?? d.expiry_date,
+          }));
+          toast.success(`تم التعرف على: ${res.trade_name ?? res.generic_name}`);
+          setNamingOpen(false);
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      } finally {
+        setIdentifying(false);
       }
-    } catch {
-      toast.error("تعذّرت قراءة الصورة");
-    } finally {
-      setIdentifying(false);
-    }
-  };
+    },
+    [identify],
+  );
 
-  const handlePhoto = async (image: string) => {
-    setReading(true);
-    try {
-      const res = await readPhoto({ data: { image } });
-      if (res.expiry_date) {
-        setDraft((d) => ({
-          ...d,
-          expiry_date: res.expiry_date!,
-          trade_name: d.trade_name || (res.trade_name ?? ""),
-        }));
-        toast.success(`تاريخ الانتهاء: ${res.expiry_date}`);
-        setCapturing(false);
-      } else {
-        toast.error("لم نتمكن من قراءة التاريخ، جرّب تقريب الكاميرا أكثر");
+  const handlePhoto = useCallback(
+    async (image: string) => {
+      setReading(true);
+      try {
+        const res = await readPhoto({ data: { image } });
+        if (res.expiry_date) {
+          const iso = res.expiry_date;
+          setDraft((d) => ({
+            ...d,
+            expiry_date: iso,
+            trade_name: d.trade_name || (res.trade_name ?? ""),
+          }));
+          toast.success(`تاريخ الانتهاء: ${iso}`);
+          setCapturing(false);
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      } finally {
+        setReading(false);
       }
-    } catch {
-      toast.error("تعذّرت قراءة الصورة");
-    } finally {
-      setReading(false);
-    }
-  };
+    },
+    [readPhoto],
+  );
+
 
   const save = async () => {
     const name = draft.trade_name.trim();
@@ -605,12 +613,12 @@ function AddMedicineDialog({
           </DialogHeader>
 
           <div className="grid grid-cols-2 gap-3">
-            <Button variant="secondary" onClick={() => setNamingOpen(true)} disabled={identifying}>
+            <Button variant="secondary" onClick={() => setNamingOpen(true)}>
               {identifying ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />}
-              تصوير اسم الدواء
+              مسح اسم الدواء
             </Button>
             <Button variant="secondary" onClick={() => setCapturing(true)}>
-              <Camera className="size-4" /> تصوير التاريخ
+              {reading ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />} مسح التاريخ
             </Button>
           </div>
 
@@ -661,19 +669,17 @@ function AddMedicineDialog({
 
       <PhotoCapture
         open={namingOpen}
-        busy={identifying}
-        title="تصوير اسم الدواء"
+        title="مسح اسم الدواء"
         hint="وجّه الكاميرا نحو الاسم التجاري على العلبة"
         onClose={() => setNamingOpen(false)}
-        onCapture={handleNamePhoto}
+        onScan={handleNamePhoto}
       />
       <PhotoCapture
         open={capturing}
-        busy={reading}
-        title="تصوير تاريخ الانتهاء"
-        hint="قرّب الكاميرا من تاريخ الانتهاء (EXP) حتى يظهر واضحًا"
+        title="مسح تاريخ الانتهاء"
+        hint="وجّه الكاميرا نحو تاريخ الانتهاء (EXP)"
         onClose={() => setCapturing(false)}
-        onCapture={handlePhoto}
+        onScan={handlePhoto}
       />
     </>
   );
