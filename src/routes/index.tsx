@@ -613,12 +613,12 @@ function AddMedicineDialog({
           </DialogHeader>
 
           <div className="grid grid-cols-2 gap-3">
-            <Button variant="secondary" onClick={() => setNamingOpen(true)} disabled={identifying}>
+            <Button variant="secondary" onClick={() => setNamingOpen(true)}>
               {identifying ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />}
-              تصوير اسم الدواء
+              مسح اسم الدواء
             </Button>
             <Button variant="secondary" onClick={() => setCapturing(true)}>
-              <Camera className="size-4" /> تصوير التاريخ
+              {reading ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />} مسح التاريخ
             </Button>
           </div>
 
