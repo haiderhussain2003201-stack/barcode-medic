@@ -669,19 +669,17 @@ function AddMedicineDialog({
 
       <PhotoCapture
         open={namingOpen}
-        busy={identifying}
-        title="تصوير اسم الدواء"
+        title="مسح اسم الدواء"
         hint="وجّه الكاميرا نحو الاسم التجاري على العلبة"
         onClose={() => setNamingOpen(false)}
-        onCapture={handleNamePhoto}
+        onScan={handleNamePhoto}
       />
       <PhotoCapture
         open={capturing}
-        busy={reading}
-        title="تصوير تاريخ الانتهاء"
-        hint="قرّب الكاميرا من تاريخ الانتهاء (EXP) حتى يظهر واضحًا"
+        title="مسح تاريخ الانتهاء"
+        hint="وجّه الكاميرا نحو تاريخ الانتهاء (EXP)"
         onClose={() => setCapturing(false)}
-        onCapture={handlePhoto}
+        onScan={handlePhoto}
       />
     </>
   );
