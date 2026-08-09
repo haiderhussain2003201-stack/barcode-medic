@@ -502,8 +502,6 @@ function AddMedicineDialog({
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [namingOpen, setNamingOpen] = useState(false);
   const [capturing, setCapturing] = useState(false);
-  const [identifying, setIdentifying] = useState(false);
-  const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const identify = useServerFn(identifyMedicinePhoto);
