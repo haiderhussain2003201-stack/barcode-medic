@@ -5,20 +5,16 @@ import { Button } from "@/components/ui/button";
 type Props = {
   open: boolean;
   title: string;
-  hint: string;
+  hint?: string;
   onClose: () => void;
   /** يُستدعى لكل لقطة أثناء المسح التلقائي؛ يعيد true عند نجاح التعرّف. */
   onScan: (dataUrl: string) => Promise<boolean>;
 };
 
-const SCAN_INTERVAL = 400;
-const MAX_IN_FLIGHT = 2;
-const SLOW_HINT_AFTER = 15_000;
-const CROP_W = 0.86;
-const CROP_H = 0.3;
-const SHARPNESS_MIN = 8;
+const SCAN_INTERVAL = 300;
+const MAX_IN_FLIGHT = 3;
 
-export function PhotoCapture({ open, title, hint, onClose, onScan }: Props) {
+export function PhotoCapture({ open, title, onClose, onScan }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stoppedRef = useRef(false);
@@ -30,20 +26,17 @@ export function PhotoCapture({ open, title, hint, onClose, onScan }: Props) {
 
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
-  const [slow, setSlow] = useState(false);
   const [closing, setClosing] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     let stream: MediaStream | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let slowTimer: ReturnType<typeof setTimeout> | undefined;
     let fadeTimer: ReturnType<typeof setTimeout> | undefined;
     stoppedRef.current = false;
     inFlightRef.current = 0;
     setError(null);
     setReady(false);
-    setSlow(false);
     setClosing(false);
 
     const getCanvas = () => {
@@ -51,45 +44,20 @@ export function PhotoCapture({ open, title, hint, onClose, onScan }: Props) {
       return canvasRef.current;
     };
 
-    /** حدّة تقريبية: متوسط فرق السطوع بين البكسلات المتجاورة. */
-    const sharpness = (data: Uint8ClampedArray, w: number, h: number) => {
-      let sum = 0;
-      let n = 0;
-      for (let y = 0; y < h; y += 4) {
-        for (let x = 4; x < w; x += 4) {
-          const i = (y * w + x) * 4;
-          const j = (y * w + x - 4) * 4;
-          const a = (data[i]! + data[i + 1]! + data[i + 2]!) / 3;
-          const b = (data[j]! + data[j + 1]! + data[j + 2]!) / 3;
-          sum += Math.abs(a - b);
-          n++;
-        }
-      }
-      return n ? sum / n : 0;
-    };
-
     const grabFrame = () => {
       const video = videoRef.current;
       if (!video || !video.videoWidth) return null;
-      const sw = Math.round(video.videoWidth * CROP_W);
-      const sh = Math.round(video.videoHeight * CROP_H);
-      const sx = Math.round((video.videoWidth - sw) / 2);
-      const sy = Math.round((video.videoHeight - sh) / 2);
-      const width = Math.min(sw, 768);
+      const sw = video.videoWidth;
+      const sh = video.videoHeight;
+      const width = Math.min(sw, 1024);
       const scale = width / sw;
       const canvas = getCanvas();
       canvas.width = width;
       canvas.height = Math.round(sh * scale);
-      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      const ctx = canvas.getContext("2d");
       if (!ctx) return null;
-      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-      try {
-        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        if (sharpness(img.data, canvas.width, canvas.height) < SHARPNESS_MIN) return null;
-      } catch {
-        /* ignore */
-      }
-      return canvas.toDataURL("image/jpeg", 0.6);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/jpeg", 0.7);
     };
 
     const finish = () => {
@@ -151,8 +119,7 @@ export function PhotoCapture({ open, title, hint, onClose, onScan }: Props) {
           void videoRef.current.play();
         }
         setReady(true);
-        slowTimer = setTimeout(() => setSlow(true), SLOW_HINT_AFTER);
-        timer = setTimeout(tick, 300);
+        timer = setTimeout(tick, 200);
       })
       .catch(() => setError("تعذّر فتح الكاميرا. تأكد من منح الإذن للتطبيق."));
 
@@ -163,7 +130,6 @@ export function PhotoCapture({ open, title, hint, onClose, onScan }: Props) {
     return () => {
       stoppedRef.current = true;
       if (timer) clearTimeout(timer);
-      if (slowTimer) clearTimeout(slowTimer);
       if (fadeTimer) clearTimeout(fadeTimer);
       document.removeEventListener("gesturestart", blockGesture);
       document.removeEventListener("gesturechange", blockGesture);
@@ -194,9 +160,6 @@ export function PhotoCapture({ open, title, hint, onClose, onScan }: Props) {
           muted
           playsInline
         />
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="h-24 w-4/5 rounded-2xl border-2 border-dashed border-primary" />
-        </div>
         {!ready && !error && (
           <div className="absolute inset-0 flex items-center justify-center text-background">
             <Loader2 className="size-7 animate-spin" />
@@ -206,14 +169,7 @@ export function PhotoCapture({ open, title, hint, onClose, onScan }: Props) {
           <div className="h-full w-1/3 animate-[pulse_1.2s_ease-in-out_infinite] bg-primary" />
         </div>
       </div>
-      <div className="space-y-2 p-4 text-center">
-        <p className="text-sm text-background/90">
-          {error ?? (slow ? "قرّب الكاميرا وثبّتها على النص" : hint)}
-        </p>
-        <p className="flex items-center justify-center gap-2 text-xs text-background/70">
-          <Loader2 className="size-3 animate-spin" /> جارٍ القراءة تلقائيًا...
-        </p>
-      </div>
+      {error && <p className="p-4 text-center text-sm text-background/90">{error}</p>}
     </div>
   );
 }
