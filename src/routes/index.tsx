@@ -515,7 +515,6 @@ function AddMedicineDialog({
 
   const handleNamePhoto = useCallback(
     async (image: string) => {
-      setIdentifying(true);
       try {
         const res = await identify({ data: { image } });
         if (res.trade_name || res.generic_name) {
@@ -526,14 +525,11 @@ function AddMedicineDialog({
             expiry_date: res.expiry_date ?? d.expiry_date,
           }));
           toast.success(`تم التعرف على: ${res.trade_name ?? res.generic_name}`);
-          setNamingOpen(false);
           return true;
         }
         return false;
       } catch {
         return false;
-      } finally {
-        setIdentifying(false);
       }
     },
     [identify],
@@ -541,7 +537,6 @@ function AddMedicineDialog({
 
   const handlePhoto = useCallback(
     async (image: string) => {
-      setReading(true);
       try {
         const res = await readPhoto({ data: { image } });
         if (res.expiry_date) {
@@ -552,18 +547,16 @@ function AddMedicineDialog({
             trade_name: d.trade_name || (res.trade_name ?? ""),
           }));
           toast.success(`تاريخ الانتهاء: ${iso}`);
-          setCapturing(false);
           return true;
         }
         return false;
       } catch {
         return false;
-      } finally {
-        setReading(false);
       }
     },
     [readPhoto],
   );
+
 
 
   const save = async () => {
