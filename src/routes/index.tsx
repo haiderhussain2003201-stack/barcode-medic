@@ -502,8 +502,6 @@ function AddMedicineDialog({
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [namingOpen, setNamingOpen] = useState(false);
   const [capturing, setCapturing] = useState(false);
-  const [identifying, setIdentifying] = useState(false);
-  const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const identify = useServerFn(identifyMedicinePhoto);
@@ -517,7 +515,6 @@ function AddMedicineDialog({
 
   const handleNamePhoto = useCallback(
     async (image: string) => {
-      setIdentifying(true);
       try {
         const res = await identify({ data: { image } });
         if (res.trade_name || res.generic_name) {
@@ -528,14 +525,11 @@ function AddMedicineDialog({
             expiry_date: res.expiry_date ?? d.expiry_date,
           }));
           toast.success(`تم التعرف على: ${res.trade_name ?? res.generic_name}`);
-          setNamingOpen(false);
           return true;
         }
         return false;
       } catch {
         return false;
-      } finally {
-        setIdentifying(false);
       }
     },
     [identify],
@@ -543,7 +537,6 @@ function AddMedicineDialog({
 
   const handlePhoto = useCallback(
     async (image: string) => {
-      setReading(true);
       try {
         const res = await readPhoto({ data: { image } });
         if (res.expiry_date) {
@@ -554,18 +547,16 @@ function AddMedicineDialog({
             trade_name: d.trade_name || (res.trade_name ?? ""),
           }));
           toast.success(`تاريخ الانتهاء: ${iso}`);
-          setCapturing(false);
           return true;
         }
         return false;
       } catch {
         return false;
-      } finally {
-        setReading(false);
       }
     },
     [readPhoto],
   );
+
 
 
   const save = async () => {
@@ -614,13 +605,14 @@ function AddMedicineDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <Button variant="secondary" onClick={() => setNamingOpen(true)}>
-              {identifying ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />}
+              <Camera className="size-4" />
               مسح اسم الدواء
             </Button>
             <Button variant="secondary" onClick={() => setCapturing(true)}>
-              {reading ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />} مسح التاريخ
+              <Camera className="size-4" /> مسح التاريخ
             </Button>
           </div>
+
 
           <div className="space-y-3">
             <Field label="الاسم التجاري">
