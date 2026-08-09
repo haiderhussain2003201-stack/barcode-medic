@@ -142,7 +142,7 @@ export function PhotoCapture({ open, title, hint, onClose, onScan }: Props) {
         try {
           await track?.applyConstraints({
             advanced: [{ focusMode: "continuous" }, { zoom: 1 }],
-          } as MediaTrackConstraints);
+          } as unknown as MediaTrackConstraints);
         } catch {
           /* غير مدعوم على بعض الأجهزة */
         }
