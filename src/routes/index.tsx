@@ -560,6 +560,7 @@ function AddMedicineDialog({
       expiry_date: draft.expiry_date || null,
       quantity: Math.max(1, Number(draft.quantity) || 1),
       category: draft.category.trim() || null,
+      barcode: draft.barcode.trim() || null,
     });
     setSaving(false);
     if (error) {
@@ -670,6 +671,7 @@ function EditMedicineDialog({
     expiry_date: medicine.expiry_date ?? "",
     quantity: String(medicine.quantity),
     category: medicine.category ?? "",
+    barcode: medicine.barcode ?? "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -690,6 +692,7 @@ function EditMedicineDialog({
         expiry_date: draft.expiry_date || null,
         quantity: Math.max(1, Number(draft.quantity) || 1),
         category: draft.category.trim() || null,
+        barcode: draft.barcode.trim() || null,
       })
       .eq("id", medicine.id);
     setSaving(false);
