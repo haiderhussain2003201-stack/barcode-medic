@@ -21,7 +21,7 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { identifyMedicinePhoto, readExpiryPhoto } from "@/lib/pharmacy.functions";
+import { scanMedicinePack } from "@/lib/pharmacy.functions";
 import { PhotoCapture } from "@/components/PhotoCapture";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
