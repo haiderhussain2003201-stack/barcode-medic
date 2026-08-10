@@ -634,6 +634,15 @@ function AddMedicineDialog({
                 />
               </Field>
             </div>
+            <Field label="الباركود">
+              <Input
+                dir="ltr"
+                value={draft.barcode}
+                maxLength={64}
+                onChange={(e) => set("barcode", e.target.value)}
+              />
+            </Field>
+
           </div>
 
           <Button onClick={save} disabled={saving} size="lg" className="mt-2 w-full">
