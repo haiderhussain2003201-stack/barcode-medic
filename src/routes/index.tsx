@@ -454,6 +454,7 @@ type Draft = {
   expiry_date: string;
   quantity: string;
   category: string;
+  barcode: string;
 };
 
 const emptyDraft: Draft = {
@@ -462,7 +463,9 @@ const emptyDraft: Draft = {
   expiry_date: "",
   quantity: "1",
   category: "",
+  barcode: "",
 };
+
 
 function CategorySelect({
   value,
