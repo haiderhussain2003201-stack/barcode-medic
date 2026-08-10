@@ -574,28 +574,23 @@ function AddMedicineDialog({
         <DialogContent
           className="max-h-[90dvh] overflow-y-auto sm:max-w-md"
           onInteractOutside={(e) => {
-            if (namingOpen || capturing) e.preventDefault();
+            if (scanning) e.preventDefault();
           }}
           onEscapeKeyDown={(e) => {
-            if (namingOpen || capturing) e.preventDefault();
+            if (scanning) e.preventDefault();
           }}
         >
           <DialogHeader className="text-right">
             <DialogTitle>إضافة دواء</DialogTitle>
             <DialogDescription>
-              صوّر اسم الدواء ليُدرج مع اسمه العلمي تلقائيًا، ثم صوّر تاريخ الانتهاء.
+              وجّه الكاميرا على العلبة مرة واحدة: يُقرأ الاسم وتاريخ الانتهاء والباركود معًا.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Button variant="secondary" onClick={() => setNamingOpen(true)}>
-              <Camera className="size-4" />
-              مسح اسم الدواء
-            </Button>
-            <Button variant="secondary" onClick={() => setCapturing(true)}>
-              <Camera className="size-4" /> مسح التاريخ
-            </Button>
-          </div>
+          <Button variant="secondary" size="lg" onClick={() => setScanning(true)}>
+            <Camera className="size-4" /> مسح العلبة
+          </Button>
+
 
 
           <div className="space-y-3">
