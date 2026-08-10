@@ -500,12 +500,10 @@ function AddMedicineDialog({
   onSaved: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>(emptyDraft);
-  const [namingOpen, setNamingOpen] = useState(false);
-  const [capturing, setCapturing] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const identify = useServerFn(identifyMedicinePhoto);
-  const readPhoto = useServerFn(readExpiryPhoto);
+  const scanPack = useServerFn(scanMedicinePack);
 
   useEffect(() => {
     if (open) setDraft(emptyDraft);
@@ -513,49 +511,35 @@ function AddMedicineDialog({
 
   const set = (k: keyof Draft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
 
-  const handleNamePhoto = useCallback(
+  const handleScan = useCallback(
     async (image: string) => {
       try {
-        const res = await identify({ data: { image } });
-        if (res.trade_name || res.generic_name) {
-          setDraft((d) => ({
-            ...d,
-            trade_name: res.trade_name ?? d.trade_name,
-            generic_name: res.generic_name ?? d.generic_name,
-            expiry_date: res.expiry_date ?? d.expiry_date,
-          }));
-          toast.success(`تم التعرف على: ${res.trade_name ?? res.generic_name}`);
-          return true;
-        }
-        return false;
+        const res = await scanPack({ data: { image } });
+        if (!res.trade_name && !res.generic_name && !res.expiry_date && !res.barcode) return false;
+        setDraft((d) => ({
+          ...d,
+          trade_name: res.trade_name ?? d.trade_name,
+          generic_name: res.generic_name ?? d.generic_name,
+          expiry_date: res.expiry_date ?? d.expiry_date,
+          barcode: res.barcode ?? d.barcode,
+        }));
+        toast.success(
+          [
+            res.trade_name ?? res.generic_name,
+            res.expiry_date ? `انتهاء: ${res.expiry_date}` : null,
+            res.barcode ? `باركود: ${res.barcode}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ") || "تم التعرف",
+        );
+        return true;
       } catch {
         return false;
       }
     },
-    [identify],
+    [scanPack],
   );
 
-  const handlePhoto = useCallback(
-    async (image: string) => {
-      try {
-        const res = await readPhoto({ data: { image } });
-        if (res.expiry_date) {
-          const iso = res.expiry_date;
-          setDraft((d) => ({
-            ...d,
-            expiry_date: iso,
-            trade_name: d.trade_name || (res.trade_name ?? ""),
-          }));
-          toast.success(`تاريخ الانتهاء: ${iso}`);
-          return true;
-        }
-        return false;
-      } catch {
-        return false;
-      }
-    },
-    [readPhoto],
-  );
 
 
 
