@@ -639,17 +639,12 @@ function AddMedicineDialog({
       </Dialog>
 
       <PhotoCapture
-        open={namingOpen}
-        title="مسح اسم الدواء"
-        onClose={() => setNamingOpen(false)}
-        onScan={handleNamePhoto}
+        open={scanning}
+        title="مسح العلبة"
+        onClose={() => setScanning(false)}
+        onScan={handleScan}
       />
-      <PhotoCapture
-        open={capturing}
-        title="مسح تاريخ الانتهاء"
-        onClose={() => setCapturing(false)}
-        onScan={handlePhoto}
-      />
+
 
     </>
   );
