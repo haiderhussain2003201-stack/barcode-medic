@@ -85,6 +85,7 @@ type Medicine = {
   expiry_date: string | null;
   quantity: number;
   category: string | null;
+  barcode: string | null;
 };
 
 const today = () => {
@@ -164,7 +165,7 @@ function HomePage() {
     queryFn: async (): Promise<Medicine[]> => {
       const { data, error } = await supabase
         .from("medicines")
-        .select("id, trade_name, generic_name, expiry_date, quantity, category")
+        .select("id, trade_name, generic_name, expiry_date, quantity, category, barcode")
         .order("expiry_date", { ascending: true, nullsFirst: false });
       if (error) throw error;
       return data ?? [];
