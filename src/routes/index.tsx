@@ -520,13 +520,22 @@ function AddMedicineDialog({
       try {
         const res = await scanPack({ data: { image } });
         if (!res.trade_name && !res.generic_name && !res.expiry_date && !res.barcode) return false;
-        setDraft((d) => ({
-          ...d,
-          trade_name: res.trade_name ?? d.trade_name,
-          generic_name: res.generic_name ?? d.generic_name,
-          expiry_date: res.expiry_date ?? d.expiry_date,
-          barcode: res.barcode ?? d.barcode,
-        }));
+        let hasName = false;
+        let hasExpiry = false;
+        setDraft((d) => {
+          const next = {
+            ...d,
+            trade_name: d.trade_name || (res.trade_name ?? ""),
+            generic_name: d.generic_name || (res.generic_name ?? ""),
+            expiry_date: d.expiry_date || (res.expiry_date ?? ""),
+            barcode: d.barcode || (res.barcode ?? ""),
+          };
+          hasName = Boolean(next.trade_name || next.generic_name);
+          hasExpiry = Boolean(next.expiry_date);
+          return next;
+        });
+        // نكمل المسح حتى نحصل على الاسم والتاريخ معًا
+        if (!hasName || !hasExpiry) return false;
         toast.success(
           [
             res.trade_name ?? res.generic_name,
@@ -543,6 +552,7 @@ function AddMedicineDialog({
     },
     [scanPack],
   );
+
 
 
 
