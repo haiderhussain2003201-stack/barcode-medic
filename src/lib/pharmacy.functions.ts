@@ -25,3 +25,12 @@ export const readExpiryPhoto = createServerFn({ method: "POST" })
     const { readPackPhoto } = await import("./pharmacy.server");
     return await readPackPhoto(data.image);
   });
+
+/** لقطة واحدة: الاسم + التاريخ + الباركود. */
+export const scanMedicinePack = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => PhotoInput.parse(input))
+  .handler(async ({ data }) => {
+    const { readPackFull } = await import("./pharmacy.server");
+    return await readPackFull(data.image);
+  });
