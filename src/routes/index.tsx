@@ -21,7 +21,7 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { identifyMedicinePhoto, readExpiryPhoto } from "@/lib/pharmacy.functions";
+import { scanMedicinePack } from "@/lib/pharmacy.functions";
 import { PhotoCapture } from "@/components/PhotoCapture";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,6 +85,7 @@ type Medicine = {
   expiry_date: string | null;
   quantity: number;
   category: string | null;
+  barcode: string | null;
 };
 
 const today = () => {
@@ -164,7 +165,7 @@ function HomePage() {
     queryFn: async (): Promise<Medicine[]> => {
       const { data, error } = await supabase
         .from("medicines")
-        .select("id, trade_name, generic_name, expiry_date, quantity, category")
+        .select("id, trade_name, generic_name, expiry_date, quantity, category, barcode")
         .order("expiry_date", { ascending: true, nullsFirst: false });
       if (error) throw error;
       return data ?? [];
@@ -454,6 +455,7 @@ type Draft = {
   expiry_date: string;
   quantity: string;
   category: string;
+  barcode: string;
 };
 
 const emptyDraft: Draft = {
@@ -462,7 +464,9 @@ const emptyDraft: Draft = {
   expiry_date: "",
   quantity: "1",
   category: "",
+  barcode: "",
 };
+
 
 function CategorySelect({
   value,
@@ -500,12 +504,10 @@ function AddMedicineDialog({
   onSaved: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>(emptyDraft);
-  const [namingOpen, setNamingOpen] = useState(false);
-  const [capturing, setCapturing] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const identify = useServerFn(identifyMedicinePhoto);
-  const readPhoto = useServerFn(readExpiryPhoto);
+  const scanPack = useServerFn(scanMedicinePack);
 
   useEffect(() => {
     if (open) setDraft(emptyDraft);
@@ -513,49 +515,35 @@ function AddMedicineDialog({
 
   const set = (k: keyof Draft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
 
-  const handleNamePhoto = useCallback(
+  const handleScan = useCallback(
     async (image: string) => {
       try {
-        const res = await identify({ data: { image } });
-        if (res.trade_name || res.generic_name) {
-          setDraft((d) => ({
-            ...d,
-            trade_name: res.trade_name ?? d.trade_name,
-            generic_name: res.generic_name ?? d.generic_name,
-            expiry_date: res.expiry_date ?? d.expiry_date,
-          }));
-          toast.success(`تم التعرف على: ${res.trade_name ?? res.generic_name}`);
-          return true;
-        }
-        return false;
+        const res = await scanPack({ data: { image } });
+        if (!res.trade_name && !res.generic_name && !res.expiry_date && !res.barcode) return false;
+        setDraft((d) => ({
+          ...d,
+          trade_name: res.trade_name ?? d.trade_name,
+          generic_name: res.generic_name ?? d.generic_name,
+          expiry_date: res.expiry_date ?? d.expiry_date,
+          barcode: res.barcode ?? d.barcode,
+        }));
+        toast.success(
+          [
+            res.trade_name ?? res.generic_name,
+            res.expiry_date ? `انتهاء: ${res.expiry_date}` : null,
+            res.barcode ? `باركود: ${res.barcode}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ") || "تم التعرف",
+        );
+        return true;
       } catch {
         return false;
       }
     },
-    [identify],
+    [scanPack],
   );
 
-  const handlePhoto = useCallback(
-    async (image: string) => {
-      try {
-        const res = await readPhoto({ data: { image } });
-        if (res.expiry_date) {
-          const iso = res.expiry_date;
-          setDraft((d) => ({
-            ...d,
-            expiry_date: iso,
-            trade_name: d.trade_name || (res.trade_name ?? ""),
-          }));
-          toast.success(`تاريخ الانتهاء: ${iso}`);
-          return true;
-        }
-        return false;
-      } catch {
-        return false;
-      }
-    },
-    [readPhoto],
-  );
 
 
 
@@ -573,6 +561,7 @@ function AddMedicineDialog({
       expiry_date: draft.expiry_date || null,
       quantity: Math.max(1, Number(draft.quantity) || 1),
       category: draft.category.trim() || null,
+      barcode: draft.barcode.trim() || null,
     });
     setSaving(false);
     if (error) {
@@ -590,28 +579,23 @@ function AddMedicineDialog({
         <DialogContent
           className="max-h-[90dvh] overflow-y-auto sm:max-w-md"
           onInteractOutside={(e) => {
-            if (namingOpen || capturing) e.preventDefault();
+            if (scanning) e.preventDefault();
           }}
           onEscapeKeyDown={(e) => {
-            if (namingOpen || capturing) e.preventDefault();
+            if (scanning) e.preventDefault();
           }}
         >
           <DialogHeader className="text-right">
             <DialogTitle>إضافة دواء</DialogTitle>
             <DialogDescription>
-              صوّر اسم الدواء ليُدرج مع اسمه العلمي تلقائيًا، ثم صوّر تاريخ الانتهاء.
+              وجّه الكاميرا على العلبة مرة واحدة: يُقرأ الاسم وتاريخ الانتهاء والباركود معًا.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Button variant="secondary" onClick={() => setNamingOpen(true)}>
-              <Camera className="size-4" />
-              مسح اسم الدواء
-            </Button>
-            <Button variant="secondary" onClick={() => setCapturing(true)}>
-              <Camera className="size-4" /> مسح التاريخ
-            </Button>
-          </div>
+          <Button variant="secondary" size="lg" onClick={() => setScanning(true)}>
+            <Camera className="size-4" /> مسح العلبة
+          </Button>
+
 
 
           <div className="space-y-3">
@@ -651,6 +635,15 @@ function AddMedicineDialog({
                 />
               </Field>
             </div>
+            <Field label="الباركود">
+              <Input
+                dir="ltr"
+                value={draft.barcode}
+                maxLength={64}
+                onChange={(e) => set("barcode", e.target.value)}
+              />
+            </Field>
+
           </div>
 
           <Button onClick={save} disabled={saving} size="lg" className="mt-2 w-full">
@@ -660,17 +653,12 @@ function AddMedicineDialog({
       </Dialog>
 
       <PhotoCapture
-        open={namingOpen}
-        title="مسح اسم الدواء"
-        onClose={() => setNamingOpen(false)}
-        onScan={handleNamePhoto}
+        open={scanning}
+        title="مسح العلبة"
+        onClose={() => setScanning(false)}
+        onScan={handleScan}
       />
-      <PhotoCapture
-        open={capturing}
-        title="مسح تاريخ الانتهاء"
-        onClose={() => setCapturing(false)}
-        onScan={handlePhoto}
-      />
+
 
     </>
   );
@@ -693,6 +681,7 @@ function EditMedicineDialog({
     expiry_date: medicine.expiry_date ?? "",
     quantity: String(medicine.quantity),
     category: medicine.category ?? "",
+    barcode: medicine.barcode ?? "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -713,6 +702,7 @@ function EditMedicineDialog({
         expiry_date: draft.expiry_date || null,
         quantity: Math.max(1, Number(draft.quantity) || 1),
         category: draft.category.trim() || null,
+        barcode: draft.barcode.trim() || null,
       })
       .eq("id", medicine.id);
     setSaving(false);

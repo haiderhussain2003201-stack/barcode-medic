@@ -116,3 +116,46 @@ export async function readPackPhoto(imageDataUrl: string): Promise<ScanResult> {
     trade_name: parsed?.trade_name ?? null,
   };
 }
+
+export type FullScanResult = {
+  trade_name: string | null;
+  generic_name: string | null;
+  expiry_date: string | null;
+  barcode: string | null;
+};
+
+/** يقرأ الاسم والتاريخ والباركود من لقطة واحدة. */
+export async function readPackFull(imageDataUrl: string): Promise<FullScanResult> {
+  const content = await callGateway({
+    model: "google/gemini-3.6-flash",
+    messages: [
+      {
+        role: "system",
+        content:
+          "You read photos of medicine packaging. Return JSON only: " +
+          '{"trade_name": string|null, "generic_name": string|null, "expiry_date": "YYYY-MM-DD"|null, "barcode": string|null}. ' +
+          "trade_name is the commercial brand name printed on the pack. " +
+          "generic_name is the active pharmaceutical ingredient (INN) — infer it from your pharmaceutical knowledge of the brand even if it is not printed, including strength if visible. " +
+          "expiry_date: read EXP / Exp. Date / تاريخ الانتهاء; ignore MFG. If only month/year, use the LAST day of that month. Ambiguous numeric dates are DD/MM/YYYY. " +
+          "barcode: the digits printed under an EAN/UPC barcode, or the decoded text of a QR/DataMatrix code, if legible. Digits only for EAN/UPC. " +
+          "Use null for anything you are not reasonably sure about. Never invent values. No prose.",
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Extract name, expiry date and barcode from this pack." },
+          { type: "image_url", image_url: { url: imageDataUrl } },
+        ],
+      },
+    ],
+  });
+  const parsed = parseJson<FullScanResult>(content);
+  const iso = parsed?.expiry_date;
+  const code = typeof parsed?.barcode === "string" ? parsed.barcode.trim() : "";
+  return {
+    trade_name: parsed?.trade_name ?? null,
+    generic_name: parsed?.generic_name ?? null,
+    expiry_date: typeof iso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null,
+    barcode: code.length >= 6 ? code : null,
+  };
+}
