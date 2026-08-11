@@ -516,12 +516,18 @@ function AddMedicineDialog({
 }) {
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [scanning, setScanning] = useState(false);
+  const [barcodeScanning, setBarcodeScanning] = useState(false);
+  const [unknownGtin, setUnknownGtin] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   const scanPack = useServerFn(scanMedicinePack);
 
   useEffect(() => {
-    if (open) setDraft(emptyDraft);
+    if (open) {
+      setDraft(emptyDraft);
+      setUnknownGtin(null);
+    }
   }, [open]);
 
   const set = (k: keyof Draft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
