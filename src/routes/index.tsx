@@ -754,6 +754,7 @@ function EditMedicineDialog({
     quantity: String(medicine.quantity),
     category: medicine.category ?? "",
     barcode: medicine.barcode ?? "",
+    batch_number: medicine.batch_number ?? "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -775,6 +776,7 @@ function EditMedicineDialog({
         quantity: Math.max(1, Number(draft.quantity) || 1),
         category: draft.category.trim() || null,
         barcode: draft.barcode.trim() || null,
+        batch_number: draft.batch_number.trim() || null,
       })
       .eq("id", medicine.id);
     setSaving(false);
