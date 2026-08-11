@@ -13,6 +13,8 @@ import {
   Package,
   Pill,
   Plus,
+  Minus,
+  ScanLine,
   Search,
   Trash2,
   TriangleAlert,
@@ -23,6 +25,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { scanMedicinePack } from "@/lib/pharmacy.functions";
 import { PhotoCapture } from "@/components/PhotoCapture";
+import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { lookupGtin, parseGs1, rememberGtin } from "@/lib/gs1";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -86,6 +90,7 @@ type Medicine = {
   quantity: number;
   category: string | null;
   barcode: string | null;
+  batch_number: string | null;
 };
 
 const today = () => {
@@ -165,7 +170,9 @@ function HomePage() {
     queryFn: async (): Promise<Medicine[]> => {
       const { data, error } = await supabase
         .from("medicines")
-        .select("id, trade_name, generic_name, expiry_date, quantity, category, barcode")
+        .select(
+          "id, trade_name, generic_name, expiry_date, quantity, category, barcode, batch_number",
+        )
         .order("expiry_date", { ascending: true, nullsFirst: false });
       if (error) throw error;
       return data ?? [];
@@ -185,6 +192,8 @@ function HomePage() {
       expiry_date: m.expiry_date,
       quantity: m.quantity,
       category: m.category,
+      barcode: m.barcode,
+      batch_number: m.batch_number,
     });
     if (error) {
       toast.error("تعذّر التراجع");
@@ -456,6 +465,7 @@ type Draft = {
   quantity: string;
   category: string;
   barcode: string;
+  batch_number: string;
 };
 
 const emptyDraft: Draft = {
@@ -465,6 +475,7 @@ const emptyDraft: Draft = {
   quantity: "1",
   category: "",
   barcode: "",
+  batch_number: "",
 };
 
 
