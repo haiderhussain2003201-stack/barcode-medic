@@ -570,9 +570,26 @@ function AddMedicineDialog({
     [scanPack],
   );
 
-
-
-
+  /** فور اكتشاف الباركود: تعبئة التاريخ والرمز والاسم إن كان معروفًا. */
+  const handleBarcode = useCallback((raw: string) => {
+    const gs1 = parseGs1(raw);
+    const code = gs1.gtin ?? raw.replace(/[^0-9A-Za-z-]/g, "").slice(0, 64);
+    const known = lookupGtin(gs1.gtin);
+    setDraft((d) => ({
+      ...d,
+      barcode: code || d.barcode,
+      expiry_date: gs1.expiry ?? d.expiry_date,
+      batch_number: gs1.batch ?? d.batch_number,
+      trade_name: known ?? d.trade_name,
+    }));
+    if (known) {
+      setUnknownGtin(null);
+      toast.success(`${known}${gs1.expiry ? ` · انتهاء: ${gs1.expiry}` : ""}`);
+    } else {
+      setUnknownGtin(gs1.gtin ?? code ?? null);
+      setTimeout(() => nameInputRef.current?.focus(), 220);
+    }
+  }, []);
 
   const save = async () => {
     const name = draft.trade_name.trim();
@@ -589,7 +606,9 @@ function AddMedicineDialog({
       quantity: Math.max(1, Number(draft.quantity) || 1),
       category: draft.category.trim() || null,
       barcode: draft.barcode.trim() || null,
+      batch_number: draft.batch_number.trim() || null,
     });
+    if (!error) rememberGtin(draft.barcode.trim() || null, name);
     setSaving(false);
     if (error) {
       toast.error("تعذّر الحفظ");
