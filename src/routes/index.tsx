@@ -13,6 +13,8 @@ import {
   Package,
   Pill,
   Plus,
+  Minus,
+  ScanLine,
   Search,
   Trash2,
   TriangleAlert,
@@ -23,6 +25,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { scanMedicinePack } from "@/lib/pharmacy.functions";
 import { PhotoCapture } from "@/components/PhotoCapture";
+import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { lookupGtin, parseGs1, rememberGtin } from "@/lib/gs1";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -86,6 +90,7 @@ type Medicine = {
   quantity: number;
   category: string | null;
   barcode: string | null;
+  batch_number: string | null;
 };
 
 const today = () => {
@@ -165,7 +170,9 @@ function HomePage() {
     queryFn: async (): Promise<Medicine[]> => {
       const { data, error } = await supabase
         .from("medicines")
-        .select("id, trade_name, generic_name, expiry_date, quantity, category, barcode")
+        .select(
+          "id, trade_name, generic_name, expiry_date, quantity, category, barcode, batch_number",
+        )
         .order("expiry_date", { ascending: true, nullsFirst: false });
       if (error) throw error;
       return data ?? [];
@@ -185,6 +192,8 @@ function HomePage() {
       expiry_date: m.expiry_date,
       quantity: m.quantity,
       category: m.category,
+      barcode: m.barcode,
+      batch_number: m.batch_number,
     });
     if (error) {
       toast.error("تعذّر التراجع");
@@ -456,6 +465,7 @@ type Draft = {
   quantity: string;
   category: string;
   barcode: string;
+  batch_number: string;
 };
 
 const emptyDraft: Draft = {
@@ -465,6 +475,7 @@ const emptyDraft: Draft = {
   quantity: "1",
   category: "",
   barcode: "",
+  batch_number: "",
 };
 
 
@@ -505,12 +516,18 @@ function AddMedicineDialog({
 }) {
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [scanning, setScanning] = useState(false);
+  const [barcodeScanning, setBarcodeScanning] = useState(false);
+  const [unknownGtin, setUnknownGtin] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   const scanPack = useServerFn(scanMedicinePack);
 
   useEffect(() => {
-    if (open) setDraft(emptyDraft);
+    if (open) {
+      setDraft(emptyDraft);
+      setUnknownGtin(null);
+    }
   }, [open]);
 
   const set = (k: keyof Draft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
@@ -553,9 +570,26 @@ function AddMedicineDialog({
     [scanPack],
   );
 
-
-
-
+  /** فور اكتشاف الباركود: تعبئة التاريخ والرمز والاسم إن كان معروفًا. */
+  const handleBarcode = useCallback((raw: string) => {
+    const gs1 = parseGs1(raw);
+    const code = gs1.gtin ?? raw.replace(/[^0-9A-Za-z-]/g, "").slice(0, 64);
+    const known = lookupGtin(gs1.gtin);
+    setDraft((d) => ({
+      ...d,
+      barcode: code || d.barcode,
+      expiry_date: gs1.expiry ?? d.expiry_date,
+      batch_number: gs1.batch ?? d.batch_number,
+      trade_name: known ?? d.trade_name,
+    }));
+    if (known) {
+      setUnknownGtin(null);
+      toast.success(`${known}${gs1.expiry ? ` · انتهاء: ${gs1.expiry}` : ""}`);
+    } else {
+      setUnknownGtin(gs1.gtin ?? code ?? null);
+      setTimeout(() => nameInputRef.current?.focus(), 220);
+    }
+  }, []);
 
   const save = async () => {
     const name = draft.trade_name.trim();
@@ -572,7 +606,9 @@ function AddMedicineDialog({
       quantity: Math.max(1, Number(draft.quantity) || 1),
       category: draft.category.trim() || null,
       barcode: draft.barcode.trim() || null,
+      batch_number: draft.batch_number.trim() || null,
     });
+    if (!error) rememberGtin(draft.barcode.trim() || null, name);
     setSaving(false);
     if (error) {
       toast.error("تعذّر الحفظ");
@@ -589,28 +625,38 @@ function AddMedicineDialog({
         <DialogContent
           className="max-h-[90dvh] overflow-y-auto sm:max-w-md"
           onInteractOutside={(e) => {
-            if (scanning) e.preventDefault();
+            if (scanning || barcodeScanning) e.preventDefault();
           }}
           onEscapeKeyDown={(e) => {
-            if (scanning) e.preventDefault();
+            if (scanning || barcodeScanning) e.preventDefault();
           }}
         >
           <DialogHeader className="text-right">
             <DialogTitle>إضافة دواء</DialogTitle>
             <DialogDescription>
-              وجّه الكاميرا على العلبة مرة واحدة: يُقرأ الاسم وتاريخ الانتهاء والباركود معًا.
+              امسح باركود GS1 DataMatrix للتعبئة الفورية، أو صوّر العلبة لقراءة الاسم والتاريخ.
             </DialogDescription>
           </DialogHeader>
 
-          <Button variant="secondary" size="lg" onClick={() => setScanning(true)}>
-            <Camera className="size-4" /> مسح العلبة
-          </Button>
+          <div className="grid grid-cols-2 gap-2">
+            <Button size="lg" onClick={() => setBarcodeScanning(true)}>
+              <ScanLine className="size-4" /> مسح الباركود
+            </Button>
+            <Button variant="secondary" size="lg" onClick={() => setScanning(true)}>
+              <Camera className="size-4" /> مسح العلبة
+            </Button>
+          </div>
 
-
+          {unknownGtin && (
+            <Badge variant="outline" className="w-fit bg-warning/15 text-warning-foreground border-warning/40">
+              دواء جديد - يرجى إدخال الاسم
+            </Badge>
+          )}
 
           <div className="space-y-3">
-            <Field label="الاسم التجاري">
+            <Field label="اسم العلاج">
               <Input
+                ref={nameInputRef}
                 value={draft.trade_name}
                 maxLength={200}
                 onChange={(e) => set("trade_name", e.target.value)}
@@ -645,15 +691,24 @@ function AddMedicineDialog({
                 />
               </Field>
             </div>
-            <Field label="الباركود">
-              <Input
-                dir="ltr"
-                value={draft.barcode}
-                maxLength={64}
-                onChange={(e) => set("barcode", e.target.value)}
-              />
-            </Field>
-
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="رمز الباركود">
+                <Input
+                  dir="ltr"
+                  value={draft.barcode}
+                  maxLength={64}
+                  onChange={(e) => set("barcode", e.target.value)}
+                />
+              </Field>
+              <Field label="رقم الدفعة (اختياري)">
+                <Input
+                  dir="ltr"
+                  value={draft.batch_number}
+                  maxLength={64}
+                  onChange={(e) => set("batch_number", e.target.value)}
+                />
+              </Field>
+            </div>
           </div>
 
           <Button onClick={save} disabled={saving} size="lg" className="mt-2 w-full">
@@ -662,12 +717,19 @@ function AddMedicineDialog({
         </DialogContent>
       </Dialog>
 
+      <BarcodeScanner
+        open={barcodeScanning}
+        onClose={() => setBarcodeScanning(false)}
+        onDetected={handleBarcode}
+      />
+
       <PhotoCapture
         open={scanning}
         title="مسح العلبة"
         onClose={() => setScanning(false)}
         onScan={handleScan}
       />
+
 
 
     </>
@@ -692,6 +754,7 @@ function EditMedicineDialog({
     quantity: String(medicine.quantity),
     category: medicine.category ?? "",
     barcode: medicine.barcode ?? "",
+    batch_number: medicine.batch_number ?? "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -713,6 +776,7 @@ function EditMedicineDialog({
         quantity: Math.max(1, Number(draft.quantity) || 1),
         category: draft.category.trim() || null,
         barcode: draft.barcode.trim() || null,
+        batch_number: draft.batch_number.trim() || null,
       })
       .eq("id", medicine.id);
     setSaving(false);
