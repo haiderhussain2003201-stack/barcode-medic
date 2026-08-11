@@ -625,28 +625,38 @@ function AddMedicineDialog({
         <DialogContent
           className="max-h-[90dvh] overflow-y-auto sm:max-w-md"
           onInteractOutside={(e) => {
-            if (scanning) e.preventDefault();
+            if (scanning || barcodeScanning) e.preventDefault();
           }}
           onEscapeKeyDown={(e) => {
-            if (scanning) e.preventDefault();
+            if (scanning || barcodeScanning) e.preventDefault();
           }}
         >
           <DialogHeader className="text-right">
             <DialogTitle>إضافة دواء</DialogTitle>
             <DialogDescription>
-              وجّه الكاميرا على العلبة مرة واحدة: يُقرأ الاسم وتاريخ الانتهاء والباركود معًا.
+              امسح باركود GS1 DataMatrix للتعبئة الفورية، أو صوّر العلبة لقراءة الاسم والتاريخ.
             </DialogDescription>
           </DialogHeader>
 
-          <Button variant="secondary" size="lg" onClick={() => setScanning(true)}>
-            <Camera className="size-4" /> مسح العلبة
-          </Button>
+          <div className="grid grid-cols-2 gap-2">
+            <Button size="lg" onClick={() => setBarcodeScanning(true)}>
+              <ScanLine className="size-4" /> مسح الباركود
+            </Button>
+            <Button variant="secondary" size="lg" onClick={() => setScanning(true)}>
+              <Camera className="size-4" /> مسح العلبة
+            </Button>
+          </div>
 
-
+          {unknownGtin && (
+            <Badge variant="outline" className="w-fit bg-warning/15 text-warning-foreground border-warning/40">
+              دواء جديد - يرجى إدخال الاسم
+            </Badge>
+          )}
 
           <div className="space-y-3">
-            <Field label="الاسم التجاري">
+            <Field label="اسم العلاج">
               <Input
+                ref={nameInputRef}
                 value={draft.trade_name}
                 maxLength={200}
                 onChange={(e) => set("trade_name", e.target.value)}
@@ -681,15 +691,24 @@ function AddMedicineDialog({
                 />
               </Field>
             </div>
-            <Field label="الباركود">
-              <Input
-                dir="ltr"
-                value={draft.barcode}
-                maxLength={64}
-                onChange={(e) => set("barcode", e.target.value)}
-              />
-            </Field>
-
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="رمز الباركود">
+                <Input
+                  dir="ltr"
+                  value={draft.barcode}
+                  maxLength={64}
+                  onChange={(e) => set("barcode", e.target.value)}
+                />
+              </Field>
+              <Field label="رقم الدفعة (اختياري)">
+                <Input
+                  dir="ltr"
+                  value={draft.batch_number}
+                  maxLength={64}
+                  onChange={(e) => set("batch_number", e.target.value)}
+                />
+              </Field>
+            </div>
           </div>
 
           <Button onClick={save} disabled={saving} size="lg" className="mt-2 w-full">
@@ -698,12 +717,19 @@ function AddMedicineDialog({
         </DialogContent>
       </Dialog>
 
+      <BarcodeScanner
+        open={barcodeScanning}
+        onClose={() => setBarcodeScanning(false)}
+        onDetected={handleBarcode}
+      />
+
       <PhotoCapture
         open={scanning}
         title="مسح العلبة"
         onClose={() => setScanning(false)}
         onScan={handleScan}
       />
+
 
 
     </>
